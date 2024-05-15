@@ -1,9 +1,9 @@
 #Organizar base de datos
 
-#setwd("C:/Users/Paula Osorio/OneDrive - Universidad de los andes/2022-2023-2024/MEcA/Big Data/Problem set 3")
+#setwd("C:/Users/USUARIO/Documents/GitHub/problem_set_3/scripts")
 
-train<-read.csv("train.csv")
-test<-read.csv("test.csv")
+train<-read.csv("C:/Users/USUARIO/Documents/GitHub/problem_set_3/scripts/train.csv")
+test<-read.csv("C:/Users/USUARIO/Documents/GitHub/problem_set_3/scripts/test.csv")
 
 # Cargar pacman (contiene la función p_load)
 library(pacman) 
@@ -34,8 +34,8 @@ train %>%
 train  %>%
   count(bathrooms)
 
-mediana_sup_cubierta <- median(data$surface_covered, na.rm = TRUE)
-mediana_sup_total<- median(data$surface_total, na.rm = TRUE)
+mediana_sup_cubierta <- median(train$surface_covered, na.rm = TRUE)
+mediana_sup_total<- median(train$surface_total, na.rm = TRUE)
 
 p_load(stargazer)
 stargazer(train,type="text")
@@ -56,7 +56,7 @@ pr <- ggplot(train, aes(x = price)) +
   labs(x = "Valor de venta (log-scale)", y = "Cantidad") +
   scale_x_log10(labels = scales::dollar) +
   theme_bw()
-ggplotly(p)
+ggplotly(pr)
 
 # Observamos la distribución de los inmuebles en el mapa de Bogotá
 leaflet() %>%
@@ -134,7 +134,76 @@ dist_matrix <- st_distance(x = sf_train, y = centroides_sf)
 dist_min <- apply(dist_matrix, 1, min) 
 
 #añadir variable a la base general
-train <- train %>% mutate(distancia_parque = dist_min)
+train <- train %>% mutate
+
+#Añadir variables predictoras
+#Eliminamos las observaciones que no tienen información de longitud ni latitud
+train <- train %>%
+  filter(!is.na(lat) & !is.na(lon))
+
+##Añadir variables adicionales de Open street maps
+#Ver variables disponibles
+
+library(osmdata)
+available_tags("building")
+available_tags("leisure")
+available_tags("natural")
+available_tags("landuse")
+available_tags("amenity")
+available_tags("tourism")
+available_tags("public_transport")
+
+##De acuerdo con las variables usadas en el paper de Zhaoyang et.,al tomamos algunas similares
+
+#Educacion
+escuela <- opq(bbox = getbb("Bogota Colombia")) %>%
+  add_osm_feature(key = "amenity" , value = "school") 
+
+# Cambiamos el formato para que sea un objeto sf (simple features)
+escuela_sf <- osmdata_sf(escuela)
+
+# De las features del parque nos interesa su geomoetría y donde estan ubicados 
+escuela_geometria <- escuela_sf$osm_polygons %>% 
+  dplyr::select(osm_id, name) 
+
+# Guardemos los poligonos de las escuelas 
+escuela_geometria <- st_as_sf(escuela_sf$osm_polygons)
+
+# Calculamos el centroide de cada escuela para aproximar su ubciacion como un solo punto 
+centroides <- st_centroid(escuela_geometria, byid = T)
+centroides <- centroides %>%
+  mutate(x=st_coordinates(centroides)[, "X"]) %>%
+  mutate(y=st_coordinates(centroides)[, "Y"]) 
+
+#Mapa de las escuelas
+latitud_central <- mean(train$lat)
+longitud_central <- mean(train$lon)
+
+leaflet() %>%
+  addTiles() %>%
+  setView(lng = longitud_central, lat = latitud_central, zoom = 12) %>%
+  addPolygons(data = escuela_geometria, col = "blue",weight = 10,
+              opacity = 0.8, popup = parques_geometria$name) %>%
+  addCircles(lng = centroides$x, 
+             lat = centroides$y, 
+             col = "darkblue", opacity = 0.5, radius = 1)
+
+# proyección de los centroides y de los datos de propiedades 
+centroides_sf <- st_as_sf(centroides, coords = c("x", "y"), crs=4326)
+sf_train<- st_as_sf(train, coords = c("lon", "lat"),  crs = 4326)
+
+#distancias de cada propiedad a la escuela más cercana
+dist_matrix <- st_distance(x = sf_train, y = centroides_sf)
+dist_min <- apply(dist_matrix, 1, min) 
+
+#añadir variable a la base general
+train <- train %>% mutate
+
+#Añadir variables predictoras
+#Eliminamos las observaciones que no tienen información de longitud ni latitud
+train <- train %>%
+  filter(!is.na(lat) & !is.na(lon))
+
 
 
 
