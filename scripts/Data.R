@@ -152,6 +152,7 @@ available_tags("landuse")
 available_tags("amenity")
 available_tags("tourism")
 available_tags("public_transport")
+available_tags("highway")
 
 ##De acuerdo con las variables usadas en el paper de Zhaoyang et.,al tomamos algunas similares
 
@@ -162,7 +163,7 @@ escuela <- opq(bbox = getbb("Bogota Colombia")) %>%
 # Cambiamos el formato para que sea un objeto sf (simple features)
 escuela_sf <- osmdata_sf(escuela)
 
-# De las features del parque nos interesa su geomoetría y donde estan ubicados 
+# De las features de las escuelas nos interesa su geomoetría y donde estan ubicados 
 escuela_geometria <- escuela_sf$osm_polygons %>% 
   dplyr::select(osm_id, name) 
 
@@ -170,42 +171,144 @@ escuela_geometria <- escuela_sf$osm_polygons %>%
 escuela_geometria <- st_as_sf(escuela_sf$osm_polygons)
 
 # Calculamos el centroide de cada escuela para aproximar su ubciacion como un solo punto 
-centroides <- st_centroid(escuela_geometria, byid = T)
-centroides <- centroides %>%
+centroides1 <- st_centroid(escuela_geometria, byid = T)
+centroides1 <- centroides %>%
   mutate(x=st_coordinates(centroides)[, "X"]) %>%
   mutate(y=st_coordinates(centroides)[, "Y"]) 
 
 #Mapa de las escuelas
-latitud_central <- mean(train$lat)
-longitud_central <- mean(train$lon)
+latitud_central_1 <- mean(train$lat)
+longitud_central_1 <- mean(train$lon)
 
 leaflet() %>%
   addTiles() %>%
   setView(lng = longitud_central, lat = latitud_central, zoom = 12) %>%
   addPolygons(data = escuela_geometria, col = "blue",weight = 10,
-              opacity = 0.8, popup = parques_geometria$name) %>%
+              opacity = 0.8, popup = escuela_geometria$name) %>%
   addCircles(lng = centroides$x, 
              lat = centroides$y, 
              col = "darkblue", opacity = 0.5, radius = 1)
 
 # proyección de los centroides y de los datos de propiedades 
-centroides_sf <- st_as_sf(centroides, coords = c("x", "y"), crs=4326)
+centroides1_sf <- st_as_sf(centroides, coords = c("x", "y"), crs=4326)
 sf_train<- st_as_sf(train, coords = c("lon", "lat"),  crs = 4326)
 
 #distancias de cada propiedad a la escuela más cercana
-dist_matrix <- st_distance(x = sf_train, y = centroides_sf)
-dist_min <- apply(dist_matrix, 1, min) 
+dist_matrix_1 <- st_distance(x = sf_train, y = centroides_sf)
+dist_min_1 <- apply(dist_matrix, 1, min) 
 
 #añadir variable a la base general
-train <- train %>% mutate
+train <- train %>% mutate(distancia_escuela = dist_min_1)
+test <- test %>% mutate (distancia_escuela = dist_main_1)
 
 #Añadir variables predictoras
 #Eliminamos las observaciones que no tienen información de longitud ni latitud
 train <- train %>%
   filter(!is.na(lat) & !is.na(lon))
 
+#Infraestructura (estaciones de metro/transmilenio)
 
+estaciones <- opq(bbox = getbb("Bogota Colombia")) %>%
+  add_osm_feature(key = "public_transport" , value = "station") 
 
+# Cambiamos el formato para que sea un objeto sf (simple features)
+estaciones_sf <- osmdata_sf(estaciones)
+
+# De las features de las estaciones nos interesa su geomoetría y donde estan ubicados 
+estaciones_geometria <- estaciones_sf$osm_polygons %>% 
+  dplyr::select(osm_id, name) 
+
+# Guardemos los poligonos de las estaciones 
+estaciones_geometria <- st_as_sf(estaciones_sf$osm_polygons)
+
+# Calculamos el centroide de cada estacion para aproximar su ubciacion como un solo punto 
+centroides_2 <- st_centroid(estaciones_geometria, byid = T)
+centroides_2 <- centroides %>%
+  mutate(x=st_coordinates(centroides)[, "X"]) %>%
+  mutate(y=st_coordinates(centroides)[, "Y"]) 
+
+#Mapa de las estaciones
+latitud_central <- mean(train$lat)
+longitud_central <- mean(train$lon)
+
+leaflet() %>%
+  addTiles() %>%
+  setView(lng = longitud_central, lat = latitud_central, zoom = 12) %>%
+  addPolygons(data = estaciones_geometria, col = "red",weight = 10,
+              opacity = 0.8, popup = estaciones_geometria$name) %>%
+  addCircles(lng = centroides$x, 
+             lat = centroides$y, 
+             col = "darkblue", opacity = 0.5, radius = 1)
+
+# proyección de los centroides y de los datos de propiedades 
+centroides_sf_2 <- st_as_sf(centroides, coords = c("x", "y"), crs=4326)
+sf_train <- st_as_sf(train, coords = c("lon", "lat"),  crs = 4326)
+
+#distancias de cada propiedad a la estacion más cercana
+dist_matrix_2 <- st_distance(x = sf_train, y = centroides_sf_2)
+dist_min_2 <- apply(dist_matrix, 1, min) 
+
+#añadir variable a la base general
+train <- train %>% mutate (distancia_estacion = dist_min_2)
+test <- test %>% mutate (distancia_estacion = dist_min_2)
+
+#Añadir variables predictoras
+#Eliminamos las observaciones que no tienen información de longitud ni latitud
+train <- train %>%
+  filter(!is.na(lat) & !is.na(lon))
+
+#Paradas de autobus
+
+paradero_bus <- opq(bbox = getbb("Bogota Colombia")) %>%
+  add_osm_feature(key = "highway" , value = "bus_stop") 
+
+# Cambiamos el formato para que sea un objeto sf (simple features)
+paradero_bus_sf <- osmdata_sf(paradero_bus)
+
+# De las features de los paraderos nos interesa su geomoetría y donde estan ubicados 
+paradero_bus_geometria <- paradero_bus_sf$osm_polygons %>% 
+  dplyr::select(osm_id, name) 
+
+# Guardemos los poligonos de los paraderos de bus 
+paradero_bus_geometria <- st_as_sf(paradero_bus_sf$osm_polygons)
+
+# Calculamos el centroide de cada paradero para aproximar su ubciacion como un solo punto 
+centroides_3 <- st_centroid(paradero_bus_geometria, byid = T)
+centroides_3 <- centroides %>%
+  mutate(x=st_coordinates(centroides)[, "X"]) %>%
+  mutate(y=st_coordinates(centroides)[, "Y"]) 
+
+#Mapa de los paraderos
+latitud_central <- mean(train$lat)
+longitud_central <- mean(train$lon)
+
+leaflet() %>%
+  addTiles() %>%
+  setView(lng = longitud_central, lat = latitud_central, zoom = 12) %>%
+  addPolygons(data = paradero_bus_geometria, col = "blue",weight = 10,
+              opacity = 0.8, popup = paradero_bus_geometria$name) %>%
+  addCircles(lng = centroides$x, 
+             lat = centroides$y, 
+             col = "darkblue", opacity = 0.5, radius = 1)
+
+# proyección de los centroides y de los datos de propiedades 
+centroides_sf_3 <- st_as_sf(centroides, coords = c("x", "y"), crs=4326)
+sf_train<- st_as_sf(train, coords = c("lon", "lat"),  crs = 4326)
+
+#distancias de cada propiedad a la estacion más cercana
+dist_matrix_3 <- st_distance(x = sf_train, y = centroides_sf)
+dist_min_3 <- apply(dist_matrix, 1, min) 
+
+#añadir variable a la base general
+train <- train %>% mutate (distancia_paradero = dist_min_3)
+test <- test %>% mutate (distancia_paradero = dist_min_3)
+
+#Añadir variables predictoras
+#Eliminamos las observaciones que no tienen información de longitud ni latitud
+train <- train %>%
+  filter(!is.na(lat) & !is.na(lon))
+
+##Añadir variables similares al paper de  
 
 
 
