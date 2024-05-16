@@ -399,9 +399,9 @@ sf_train <- st_as_sf(train,coords = c("lon", "lat"), crs=4326)
 sf_test <- st_as_sf(test, coords = c("lon","lat"), crs=4326)
 
 #Calculamos la distancia de cada propiedad al banco mas cercano
-dist_matrix_ba <- st_distance(x = sf_train, y = centroides_ba)
+dist_matrix_ba <- st_distance(x = sf_train, y = centroides_sf_ba)
 dist_min_ba <- apply(dist_matrix_ba, 1, min)
-dist_matrix_bc <- st_distance(x = sf_test, y = centroides_ba)
+dist_matrix_bc <- st_distance(x = sf_test, y = centroides_sf_ba)
 dist_min_bc <- apply(dist_matrix_bc, 1 , min)
 
 #Agregar como variables
