@@ -147,16 +147,7 @@ train <- train %>%
 test <- test %>%
   filter(!is.na(lat) & !is.na(lon))
 
-#Distribucion de esta variable
-
-p <- ggplot(train, aes(x = distancia_parque)) +
-  geom_histogram(bins = 50, fill = "darkblue", alpha = 0.4) +
-  labs(x = "Distancia mínima a un parque en metros", y = "Cantidad",
-       title = "Distribución de la distancia a los parques") +
-  theme_bw()
-ggplotly(p)
-
-#Relacion con la variable de interés
+#Relacion entre los parques y los precios del inmueble
 
 p <- ggplot(train%>%sample_n(1000), aes(x = distancia_parque, y = price)) +
   geom_point(col = "darkblue", alpha = 0.4) +
@@ -199,9 +190,9 @@ escuela_geometria <- st_as_sf(escuela_sf$osm_polygons)
 #Calculamos el centroide de cada escuela para aproximar su ubicacion como un solo punto
 centroides_e <- st_centroid(escuela_geometria, byid = T)
 
-centroides <- centroides %>%
-  mutate(x = st_coordinates(centroides)[,"X"]) %>%
-  mutate(y = st_coordinates(centroides)[,"Y"])
+centroides_e <- centroides_e %>%
+  mutate(x = st_coordinates(centroides_e)[,"X"]) %>%
+  mutate(y = st_coordinates(centroides_e)[,"Y"])
 
 #Creamos mapa de las escuelas
 
@@ -212,25 +203,25 @@ leaflet() %>%
   addTiles() %>%
   setView(lng = longitud_central, lat = latitud_central, zoom = 12) %>%
   addPolygons(data = escuela_geometria, col = "red",weight = 10,
-              opacity = 0.8, popup = parques_geometria$name) %>%
-  addCircles(lng = centroides$x, 
-             lat = centroides$y, 
+              opacity = 0.8, popup = escuela_geometria$name) %>%
+  addCircles(lng = centroides_e$x, 
+             lat = centroides_e$y, 
              col = "darkblue", opacity = 0.5, radius = 1)
 
 #Proyeccion de los centroides y de los datos de propiedad
-centroides_sf_escuela <- st_as_sf(centroides, coords = c("x", "y"), crs = 4326) 
+centroides_sf_e <- st_as_sf(centroides_e, coords = c("x", "y"), crs = 4326) 
 sf_train <- st_as_sf(train,coords = c("lon", "lat"), crs = 4326)
 sf_test <- st_as_sf(test, coords = c("lon", "lat"), crs = 4326)
 
 #Calcular la distancia de cada propiedad a la escuela mas cercana
-dist_matrix_escuela <- st_distance( x = sf_train, y = centroides_sf)
-dist_min_escuela <- apply(dist_matrix_escuela, 1, min)
-dist_matrix_escuelat <- st_distance(x = sf_test, y = centroides_sf)
-dist_min_test_escuelat <- apply(dist_matrix_escuelat, 1, min)
+dist_matrix_e <- st_distance( x = sf_train, y = centroides_sf_e)
+dist_min_e <- apply(dist_matrix_e, 1, min)
+dist_matrix_es <- st_distance(x = sf_test, y = centroides_sf_e)
+dist_min_es <- apply(dist_matrix_es, 1, min)
 
 #añadir variable a la base general
-train <- train %>% mutate (distancia_escuela = dist_min_escuela)
-test <- test %>% mutate (distancia_escuela = dist_min_test_escuelat)
+train <- train %>% mutate (distancia_escuela = dist_min_e)
+test <- test %>% mutate (distancia_escuela = dist_min_es)
 
 #Añadir variables predictoras
 #Eliminamos las observaciones que no tienen información de longitud ni latitud
@@ -239,13 +230,7 @@ train <- train %>%
 test <- test %>%
   filter(!is.na(lat) & !is.na(lon))
 
-#Distribucion de la variable escuela
-e <- ggplot(train, aes(x = distancia_escuela)) +
-  geom_histogram(bins = 50, fill = "blue", alpha = 0.4) +
-  labs(x = "Distancia mínima a un parque en metros", y = "Cantidad",
-       title = "Distribución de la distancia a los parques") +
-  theme_bw()
-ggplotly(e)
+#Relacion de la variable escuela y el precio del inmueble
 
 es <- ggplot(train%>%sample_n(1000), aes(x = distancia_escuela, y = price)) +
   geom_point(col = "blue", alpha = 0.4) +
@@ -287,7 +272,7 @@ leaflet() %>%
   addTiles() %>%
   setView(lng = longitud_central, lat = latitud_central, zoom = 12) %>%
   addPolygons(data = estacion_geometria, col = "red",weight = 10,
-              opacity = 0.8, popup = parques_geometria$name) %>%
+              opacity = 0.8, popup = estacion_geometria$name) %>%
   addCircles(lng = centroides_et$x, 
              lat = centroides_et$y, 
              col = "darkblue", opacity = 0.5, radius = 1)
@@ -299,12 +284,12 @@ sf_test <- st_as_sf(test, coords = c("lon", "lat"), crs = 4326)
 
 #Calcular la distancia de cada propiedad a la escuela mas cercana
 dist_matrix_et <- st_distance( x = sf_train, y = centroides_sf_estacion)
-dist_min_estacion <- apply(dist_matrix_et, 1, min)
+dist_min_et <- apply(dist_matrix_et, 1, min)
 dist_matrix_est <- st_distance(x = sf_test, y = centroides_sf_estacion)
 dist_min_est <- apply(dist_matrix_est, 1, min)
 
 #añadir variable a la base general
-train <- train %>% mutate (distancia_estacion = dist_min_estacion)
+train <- train %>% mutate (distancia_estacion = dist_min_et)
 test <- test %>% mutate (distancia_estacion = dist_min_est)
 
 #Añadir variables predictoras
@@ -314,13 +299,7 @@ train <- train %>%
 test <- test %>%
   filter(!is.na(lat) & !is.na(lon))
 
-#Distribucion de la variable escuela
-est <- ggplot(train, aes(x = distancia_estacion)) +
-  geom_histogram(bins = 50, fill = "red", alpha = 0.4) +
-  labs(x = "Distancia mínima a una estacion en metros", y = "Cantidad",
-       title = "Distribución de la distancia a las estaciones") +
-  theme_bw()
-ggplotly(est)
+#Relacion entre la estacion y el precio del inmueble
 
 est <- ggplot(train%>%sample_n(1000), aes(x = distancia_estacion, y = price)) +
   geom_point(col = "red", alpha = 0.4) +
@@ -331,3 +310,100 @@ est <- ggplot(train%>%sample_n(1000), aes(x = distancia_estacion, y = price)) +
   scale_y_log10(labels = scales::dollar) +
   theme_bw()
 ggplotly(est)
+
+#Agregar variable comercial como aproximación a los centros comerciales o zonas comerciales
+comercial <- opq(bbox = getbb("Bogotá Colombia")) %>%
+  add_osm_feature(key = "landuse", value = "commercial")
+
+#Cambiamos el formato para que sea un objeto
+comercial_sf <- osmdata_sf(comercial)
+
+#De las features de comercial nos interesa su geometria y donde estan ubicados
+comercial_geometria <- comercial_sf$osm_polygons  %>%
+  dplyr::select(osm_id, name)
+
+#Guardamos los poligonos de comercial
+comercial_geometria <- st_as_sf(comercial_sf$osm_polygons)
+
+#Calculamos el centroide de cada comercial para aproximar su ubicacion como un solo punto
+centroides_c  <- st_centroid(comercial_geometria, byid = T)
+
+centroides_c <- centroides_c %>%
+  mutate(x=st_coordinates(centroides_c)[, "X"])  %>%
+  mutate(y=st_coordinates(centroides_c)[, "Y"])
+
+#Mapa de Bogotá con estos terrenos comerciales
+leaflet() %>%
+  addTiles() %>%
+  setView(lng = longitud_central, lat = latitud_central, zoom = 12) %>%
+  addPolygons(data = comercial_geometria, col = "purple", weight = 10,
+              opacity = 0.8, popup = comercial_geometria$name)  %>%
+  addCircles(lng = centroides_c$x,
+             lat = centroides_c$y,
+             col = "darkblue", opacity = 0.5, radius = 1)
+
+centroides_sf_c <- st_as_sf(centroides_c, coords = c("x", "y"), crs=4326)
+sf_train <- st_as_sf(train, coords = c("lon", "lat"), crs=4326)
+sf_test <- st_as_sf(test, coords = c("lon", "lat"), crs=4326)
+
+#Calcular la distancia de cada propiedad a la variable comercial
+dist_matrix_c <- st_distance(x = sf_train, y = centroides_sf_c)
+dist_min_c <- apply(dist_matrix_c, 1, min)
+dist_matrix_co <- st_distance(x = sf_test, y = centroides_sf_c)
+dist_min_co <- apply(dist_matrix_co, 1, min)
+
+#Agregar la variable a la base de datos 
+train <- train %>% mutate(distancia_comercial = dist_min_c)
+test <- test %>% mutate (distancia_comercial = dist_min_co)
+
+#Añadir variables predictoras
+#Eliminamos las observaciones que no tienen información de longitud ni latitud
+train <- train %>%
+  filter(!is.na(lat) & !is.na(lon))
+test <- test %>%
+  filter(!is.na(lat) & !is.na(lon))
+
+##Agregamos la variable banco para aproximar a sector financiero
+banco <- opq(bbox = getbb("Bogotá Colombia"))  %>%
+  add_osm_feature(key = "amenity", value = "bank")
+
+#Cambiamos el formato para que sea un objeto
+banco_sf <- osmdata_sf(banco)
+
+#De las features de la variable banco nos interesa su geometria y donde están ubicados
+banco_geometria <- banco_sf$osm_polygons %>%
+  dplyr::select(osm_id, name)
+
+#Guardar poligonos de los bancos
+banco_geometria <- st_as_sf(banco_sf$osm_polygons)
+
+#Calculamos el centroide de cada parque para aprox su ubicación a un solo punto
+centroides_ba <- st_centroid(banco_geometria, byid = T)
+
+centroides_ba <- centroides_ba %>%
+  mutate(x=st_coordinates(centroides_ba)[, "X"])  %>%
+  mutate(y=st_coordinates(centroides_ba)[, "Y"])
+
+#Creamos el mapa de Bogotá con los bancos
+leaflet()  %>%
+  addTiles() %>%
+  setView(lng = longitud_central, lat = latitud_central, zoom = 12) %>%
+  addPolygons(data = banco_geometria, col = "purple", weight = 10,
+              opacity = 0.8, popup = banco_geometria$name)  %>%
+  addCircles(lng = centroides_ba$x,
+             lat = centroides_ba$y,
+             col = "darkblue", opacity = 0.5, radius = 1)
+
+centroides_sf_ba <- st_as_sf(centroides_ba, coords = c("x", "y"), crs=4326)
+sf_train <- st_as_sf(train,coords = c("lon", "lat"), crs=4326)
+sf_test <- st_as_sf(test, coords = c("lon","lat"), crs=4326)
+
+#Calculamos la distancia de cada propiedad al banco mas cercano
+dist_matrix_ba <- st_distance(x = sf_train, y = centroides_ba)
+dist_min_ba <- apply(dist_matrix_ba, 1, min)
+dist_matrix_bc <- st_distance(x = sf_test, y = centroides_ba)
+dist_min_bc <- apply(dist_matrix_bc, 1 , min)
+
+#Agregar como variables
+train <- train %>% mutate (distancia_banco = dist_matrix_ba)
+test <- test %>% mutate(distancia_banco = dist_matrix_bc)
