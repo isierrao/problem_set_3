@@ -257,7 +257,7 @@ estacion_geometria <- estacion_sf$osm_polygons %>%
 estacion_geometria <- st_as_sf(estacion_sf$osm_polygons)
 
 #Calculamos el centroide de cada estacion para aproximar su ubicacion como un solo punto
-centroides_et <- st_centroid(escuela_geometria, byid = T)
+centroides_et <- st_centroid(estacion_geometria, byid = T)
 
 centroides_et <- centroides_et %>%
   mutate(x = st_coordinates(centroides_et)[,"X"]) %>%
@@ -405,5 +405,143 @@ dist_matrix_bc <- st_distance(x = sf_test, y = centroides_sf_ba)
 dist_min_bc <- apply(dist_matrix_bc, 1 , min)
 
 #Agregar como variables
-train <- train %>% mutate (distancia_banco = dist_matrix_ba)
-test <- test %>% mutate(distancia_banco = dist_matrix_bc)
+train <- train %>% mutate (distancia_banco = dist_min_ba)
+test <- test %>% mutate(distancia_banco = dist_min_bc)
+
+#Añadir variables predictoras
+#Eliminamos las observaciones que no tienen información de longitud ni latitud
+train <- train %>%
+  filter(!is.na(lat) & !is.na(lon))
+test <- test %>%
+  filter(!is.na(lat) & !is.na(lon))
+
+##Agregamos la variable parada de autobus
+parada_bus <- opq(bbox = getbb("Bogotá Colombia"))  %>%
+  add_osm_feature(key = "highway", value = "bus_stop")
+
+#Cambiamos el formato para que sea un objeto
+parada_bus_sf <- osmdata_sf(parada_bus)
+
+#De las features de parada de autobus nos interesa su geometria y donde estan ubicados
+parada_bus_geometria <- parada_bus_sf$osm_polygons  %>%
+  dplyr::select(osm_id, name)
+
+#Guardamos los poligonos de parada de autobus
+parada_bus_geometria <- st_as_sf(parada_bus_sf$osm_polygons)
+
+#Calculamos el centroide de cada paradero para aproximar su ubicacion a un solo punto
+centroides_pb <- st_centroid(parada_bus_geometria, byid = T)
+centroides_pb <- centroides_pb %>%
+  mutate(x=st_coordinates(centroides_pb)[,"X"])  %>%
+  mutate(y=st_coordinates(centroides_pb)[,"Y"])
+
+#Mapa de Bogotá con los paraderos
+leaflet()   %>%
+  addTiles()  %>%
+  setView(lng = longitud_central, lat = latitud_central, zoom = 12)  %>%
+  addPolygons(data = parada_bus_geometria, col = "purple", weight = 10,
+              opacity = 0.8, popup = parada_bus_geometria$name) %>%
+  addCircles(lng = centroides_pb$x,
+             lat = centroides_pb$y,
+             col = "darkblue", opacity = 0.5, radius = 1)
+
+centroides_sf_pb <- st_as_sf(centroides_pb, coords = c("x", "y"), crs=4326)            
+sf_train <- st_as_sf(train,coords = c("lon", "lat"), crs=4326)
+sf_test <- st_as_sf(test,coords = c("lon", "lat"), crs=4326)
+
+#Calcular la distancia de cada propiedad al paradero mas cercano
+dist_matrix_pb <- st_distance (x = sf_train, y = centroides_sf_pb)
+dist_min_pb <- apply(dist_matrix_pb, 1, min)
+dist_matrix_b <- st_distance(x = sf_test, y = centroides_sf_pb)
+dist_min_b <- apply(dist_matrix_b, 1, min)
+
+#Agregar como variable a la base de datos
+train <- train %>% mutate (distancia_bus = dist_min_pb)
+test <- test %>% mutate (distancia_bus = dist_min_b)
+
+#Añadir variables predictoras
+#Eliminamos las observaciones que no tienen información de longitud ni latitud
+train <- train %>%
+  filter(!is.na(lat) & !is.na(lon))
+test <- test %>%
+  filter(!is.na(lat) & !is.na(lon))
+
+####Delimitar los datos a Chapinero
+#Eliminar las observaciones que no tienen información de latitud y longitud
+train <- train %>%
+  filter(!is.na(lat) & !is.na(lon))
+
+#Visualizamos los datos para Bogotá
+leaflet()  %>%
+  addTiles()  %>%
+  addCircles(lng = train$lon,
+             lat = train$lat)
+
+#Ahora nos quedaremos con las observaciones que pertenecen a Chapinero
+localidad <- "Chapinero"
+ciudad <- "Bogotá"
+
+#Consultar los datos en OMS para los límites de la localidad
+query <- paste0(localidad, ",",ciudad)
+Chapinero <- opq(query)  %>%
+  add_osm_feature(key = "boundary", value = "administrative") %>%
+  osmdata_sf()
+
+#Extraer limites
+Chapinero_bbox <- st_bbox(limites_Chapinero)
+print(Chapinero_bbox)
+
+train_filtrados <- train %>%
+  filter(
+    between(lon, Chapinero_bbox["xmin"], Chapinero_bbox["xmax"]) &
+      between(lat, Chapinero_bbox["ymin"], Chapinero_bbox["ymax"])
+  )
+
+test_filtrados <- test %>%
+  filter(
+    between(lon, Chapinero_bbox["xmin"], Chapinero_bbox["xmax"]) &
+      between(lat, Chapinero_bbox["ymin"], Chapinero_bbox["ymax"])
+  )
+
+
+train_filtrados_sf <- st_as_sf(train_filtrados, coords = c("lon", "lat"), crs=4326)
+test_filtrados_sf <- st_as_sf(test_filtrados, coords = c("lon", "lat"), crs = 4326)
+
+Chapinero$osm_multipolygons
+
+limites_Chapinero <- Chapinero$osm_multipolygons
+train_Chapinero <- st_intersection(train_filtrados_sf, limites_Chapinero)
+test_Chapinero <- st_intersection(test_filtrados_sf, limites_Chapinero)
+
+str(limites_Chapinero)
+print(limites_Chapinero)
+print(head(train_filtrados))
+print(dim(train_filtrados))
+
+#Graficar limites de Chapinero
+ggplot() +
+  geom_sf(data = limites_Chapinero, fill = "purple", color = "darkblue", alpha = 0.3) +
+  theme_minimal() +
+  labs(title = "Límites de Chapinero, Bogotá",
+       x = "Longitud", y = "Latitud")
+
+
+#Revisar proyeccion de los datos
+st_crs(limites_Chapinero)
+
+#Graficar los datos filtrados que corresponden a Chapinero
+library(ggplot2)
+
+ggplot() +
+  geom_sf(data = limites_Chapinero, fill = "purple", color = "darkblue", alpha = 0.3) +
+  geom_sf(data = train_Chapinero, color = "blue", size = 2, alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Datos filtrados dentro de Chapinero, Bogotá",
+       x = "Longitud", y = "Latitud")
+
+ggplot() +
+  geom_sf(data = limites_Chapinero, fill = "purple", color = "darkblue", alpha = 0.3) +
+  geom_sf(data = test_Chapinero, color = "blue", size = 2, alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Datos filtrados dentro de Chapinero, Bogotá",
+       x = "Longitud", y = "Latitud")
