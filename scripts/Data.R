@@ -1,14 +1,15 @@
 #Organizar base de datos
 
-#setwd("C:/Users/Paula Osorio/OneDrive - Universidad de los andes/2022-2023-2024/MEcA/Big Data/Problem set 3")
+rm(list=ls())
+
+setwd("C:/Users/Paula Osorio/OneDrive - Universidad de los andes/2022-2023-2024/MEcA/Big Data/Problem set 3")
 
 train<-read.csv("train.csv")
 test<-read.csv("test.csv")
 
-# Cargar pacman (contiene la función p_load)
-library(pacman) 
 
-# Cargar las librerías 
+#1. Cargar las librerías 
+library(pacman) 
 p_load(tidyverse, # Manipular dataframes
        rio, # Import data easily
        plotly, # Gráficos interactivos
@@ -17,9 +18,14 @@ p_load(tidyverse, # Manipular dataframes
        sf, # Leer/escribir/manipular datos espaciales
        osmdata, # Get OSM's data 
        tidymodels,#para modelos de ML
-       magritt) 
+       magritt,
+       tm,   # para Text Mining
+       tidytext, #Para tokenización
+       wordcloud, # Nube de palabras 
+       stopwords  # consultar stopwords
+       ) 
 
-#revisión de la información disponible 
+#2.revisión de la información disponible 
 table(train$operation_type)
 
 train %>%
@@ -40,17 +46,17 @@ mediana_sup_total<- median(data$surface_total, na.rm = TRUE)
 p_load(stargazer)
 stargazer(train,type="text")
 
-# Calculamos valor del metro cuadrado 
+#2.1 Calculamos valor del metro cuadrado 
 train <- train %>%
   mutate(precio_por_mt2 = round(price / surface_total, 0))%>%
   mutate(precio_por_mt2  =precio_por_mt2/1000000 )  ## precio x Mt2 en millones. 
 stargazer(train["precio_por_mt2"],type="text")
 
-#Filtramos outlier de valor por metro cuadrado
+#2.2 Filtramos outlier de valor por metro cuadrado
 train <- train %>%
   filter(between(precio_por_mt2, 0.10,  20))
 
-# Visualicemos la distribución de nuestra variable de interés
+#2.3 Visualicemos la distribución de la variable del precio del inmueble
 pr <- ggplot(train, aes(x = price)) +
   geom_histogram(fill = "darkblue", alpha = 0.4) +
   labs(x = "Valor de venta (log-scale)", y = "Cantidad") +
@@ -58,7 +64,7 @@ pr <- ggplot(train, aes(x = price)) +
   theme_bw()
 ggplotly(p)
 
-# Observamos la distribución de los inmuebles en el mapa de Bogotá
+#2.4 Observamos la distribución de los inmuebles en el mapa de Bogotá
 leaflet() %>%
   addTiles() %>%
   addCircles(lng = test$lon, 
@@ -68,17 +74,13 @@ leaflet() %>%
   addCircles(lng = train$lon, 
              lat = train$lat)
 
-#revisar variables disponibles en openmaps 
-available_tags("leisure") 
-available_tags("amenity")
-available_tags ("highway")
 
-#revisión de missings
+#2.5 revisión de missings
 p_load( visdat)
 vis_dat(train)
 #hay missings en rooms, bathrooms, y en mayor medida en surface total y surface covered
 
-#####reemplazar missings (solo en caso de que ya hayan avanzado con modelos y estemos con texto aún)
+#2.6 reemplazar missings 
 pre_process_propiedades<-  function(data, ...) {
   
   data <- data %>%
@@ -90,8 +92,208 @@ pre_process_propiedades<-  function(data, ...) {
     )
 }
 
-####Variables adicionales
-###Parques
+##3.Análisis de la información de la descripción
+
+##3.1 Revisión base train
+#estandarizar datos
+texto_train <- train$description
+texto_train <- removeNumbers(texto_train)
+texto_train <- removePunctuation(texto_train)
+texto_train <- tolower(texto_train)
+texto_train <- stripWhitespace(texto_train)
+
+#tokenizar
+texto_tidy_train <- as.data.frame(texto_train) %>% unnest_tokens( "word", texto_train)
+
+#ver palabras más frecuentes
+texto_tidy_train  %>% 
+  count(word, sort = TRUE)   %>% 
+  head()
+
+#eliminar stopwords (conjunciones, artículos, etc.)
+texto_tidy_train <- texto_tidy_train  %>% 
+  anti_join(tibble(word =stopwords("spanish")))
+
+#visualizar palabras más frecuentes
+wordcloud(texto_tidy_train$word, min.freq = 100, 
+          colors= c(rgb(72/255, 191/255, 169/255),rgb(249/255, 220/255, 92/255), rgb(229/255, 249/255, 147/255))) 
+
+##3.2 Cambios a para base train
+
+
+#función para reemplazar palabras por numeros
+reemplazar_numeros <- function(texto) {
+  # Diccionario de números en texto y sus correspondientes dígitos
+  numeros <- c(
+    " una " = " 1 ", " un "=" 1 "," primer "=" 1 ", " dos " = " 2 ", " segundo " = " 2 ", " tres " = " 3 ", " tercer " = " 3 ",
+    " cuatro " = " 4 "," 4to "="4"," cinco" = " 5 "," quinto " = " 5 "," seis " = " 6 ", " sexto " = " 6 ", 
+    " siete " = " 7 "," septimo " = " 7 ", " ocho " = " 8 "," octavo " = " 8 ", " nueve " = " 9 ", " noveno " = " 9 ",
+    " diez " = " 10 "," decimo " = " 10 "
+  )
+  
+  # Reemplazar números en texto por dígitos
+  for (word in names(numeros)) {
+    texto <- gsub(word, numeros[[word]], texto, ignore.case = TRUE)
+  }
+  
+  return(texto)
+}
+
+#aplicar función de limpieza a base train
+train$description_num<-reemplazar_numeros(train$description)
+
+#extraer metraje
+a1 <- "[:space:]+[:digit:]+metros" 
+a2 <- "[:space:]+[:digit:]+mts"
+a3 <- "[:space:]+[:digit:]+mts2"
+a4 <- "[:space:]+[:digit:]+mt"
+a5 <- "[:space:]+[:digit:]+m2" 
+a6 <- "[:space:]+[:digit:]+mt2"
+b1 <- "[:space:]+[:digit:]+[:space:]+metros" 
+b2 <- "[:space:]+[:digit:]+[:space:]+mts"
+b3 <- "[:space:]+[:digit:]+[:space:]+mts2"
+b4 <- "[:space:]+[:digit:]+[:space:]+mt" 
+b5 <- "[:space:]+[:digit:]+[:space:]+m2"
+b6 <- "[:space:]+[:digit:]+[:space:]+mt2"
+c1 <- "[:space:]+[:digit:]+[:punct:]+[:digit:]+[:space:]+metros" 
+c2 <- "[:space:]+[:digit:]+[:punct:]+[:digit:]+[:space:]+mts"
+c3 <- "[:space:]+[:digit:]+[:punct:]+[:digit:]+[:space:]+mts2"
+c4 <- "[:space:]+[:digit:]+[:punct:]+[:digit:]+[:space:]+mt" 
+c5 <- "[:space:]+[:digit:]+[:punct:]+[:digit:]+[:space:]+m2"
+c6 <- "[:space:]+[:digit:]+[:punct:]+[:digit:]+[:space:]+mt2"
+
+train<-train %>% mutate(metraje = str_extract(string = train$description_num,
+                                                pattern =  paste0(a1,"|",a2,"|",a3,"|",a4,"|",a5,"|",a6,"|",
+                                                                  b1,"|",b2,"|",b3,"|",b4,"|",b5,"|",b6,"|",
+                                                                  c1,"|",c2,"|",c3,"|",c4,"|",c5,"|",c6)))
+train$metraje<- as.numeric(gsub("[^0-9]", "", train$metraje))
+#qué hacer con los datos que son muy pequeños?
+
+#habitaciones/alcobas/dormitorios
+d1 <-"[:digit:]+alcobas"
+d2 <-"[:digit:]+habitaciones"
+d3 <-"[:digit:]+dormitorios"
+d4 <-"[:digit:]+habitacion"
+d5 <-"[:digit:]+alcoba"
+d6 <-"[:digit:]+dormitorio"
+d7 <-"[:digit:]+habitacin"
+d8 <-"[:digit:]+cuartos"
+e1 <-"[:space:]+[:digit:]+alcobas"
+e2 <-"[:space:]+[:digit:]+habitaciones"
+e3 <-"[:space:]+[:digit:]+dormitorios"
+e4 <-"[:space:]+[:digit:]+habitacion"
+e5 <-"[:space:]+[:digit:]+alcoba"
+e6 <-"[:space:]+[:digit:]+dormitorio"
+e7 <-"[:space:]+[:digit:]+habitacin"
+e8 <-"[:space:]+[:digit:]+cuartos"
+f1 <-"[:space:]+[:digit:]+[:space:]+alcobas"
+f2 <-"[:space:]+[:digit:]+[:space:]+habitaciones"
+f3 <-"[:space:]+[:digit:]+[:space:]+dormitorios"
+f4 <-"[:space:]+[:digit:]+[:space:]+habitacion"
+f5 <-"[:space:]+[:digit:]+[:space:]+alcoba"
+f6 <-"[:space:]+[:digit:]+[:space:]+dormitorio"
+f7 <-"[:space:]+[:digit:]+[:space:]+habitacin"
+f8 <-"[:space:]+[:digit:]+[:space:]+cuartos"
+
+train<-train %>% mutate(alcobas = str_extract(string = train$description_num,
+                                              pattern =  paste0(d1,"|",d2,"|",d3,"|",d4,"|",d5,"|",d6,"|",d7,"|",d8,"|",
+                                                                e1,"|",e2,"|",e3,"|",e4,"|",e5,"|",e6,"|",e7,"|",e8,"|",
+                                                                f1,"|",f2,"|",f3,"|",f4,"|",f5,"|",f6,"|",f7,"|",f8)))
+train$alcobas_num<- as.numeric(gsub("[^0-9]", "", train$alcobas))
+
+#baños
+g1 <-"[:digit:]+bano"
+g2 <-"[:digit:]+banos"
+g3 <-"[:digit:]+baos"
+g4 <-"[:digit:]+bao"
+h1 <-"[:space:]+[:digit:]+bano"
+h2 <-"[:space:]+[:digit:]+banos"
+h3 <-"[:space:]+[:digit:]+baos"
+h4 <-"[:space:]+[:digit:]+bao"
+i1 <-"[:space:]+[:digit:]+[:space:]+bano"
+i2 <-"[:space:]+[:digit:]+[:space:]+banos"
+i3 <-"[:space:]+[:digit:]+[:space:]+baos"
+i4 <-"[:space:]+[:digit:]+[:space:]+bao"
+train<-train %>% mutate(bano = str_extract(string = train$description_num,
+                                              pattern =  paste0(g1,"|",g2,"|",g3,"|",g4,"|",
+                                                                h1,"|",h2,"|",h3,"|",h4,"|",
+                                                                i1,"|",i2,"|",i3,"|",i4)))
+train$bano_num<- as.numeric(gsub("[^0-9]", "", train$bano))
+
+#altura/piso
+j1 <- "[:digit:]+[:space:]+piso"
+j2 <- "[:space:]+[:digit:]+[:space:]+piso"
+j3 <- "piso+[:space:]+[:digit:]"
+j4 <- "[:space:]+piso+[:space:]+[:digit:]"
+
+train<-train %>% mutate(piso = str_extract(string = train$description_num,
+                                           pattern =  paste0(j1,"|",j2,"|",j3,"|",j4)))
+train$piso_num<- as.numeric(gsub("[^0-9]", "", train$piso))
+
+#estrato
+k1 <- "estrato+[:space:]+[:digit:]" 
+k2 <- "[:space:]+estrato+[:digit:]"
+k3 <- "[:space:]+estrato+[:space:]+[:digit:]"
+
+train<-train %>% mutate(estrato = str_extract(string = train$description_num,
+                                           pattern =  paste0(k1,"|",k2,"|",k3)))
+train$estrato_num<- as.numeric(gsub("[^0-9]", "", train$estrato))
+
+#años de construido / remodelado
+# l1 <- "anos+[:space:]+[:digit:]" 
+# l2 <- "[:space:]+anos+[:digit:]"
+# l3 <- "[:space:]+anos+[:space:]+[:digit:]"
+# train<-train %>% mutate(antiguedad = str_extract(string = train$description_num,
+#                                               pattern =  paste0(l1,"|",l2,"|",l3)))
+# train$antiguedad_num<- as.numeric(gsub("[^0-9]", "", train$antiguedad))
+l1<-str_detect( train$description,"remodelado") 
+train$remodel<-ifelse(l1==TRUE, 1,0 )
+
+#tiene ascensor
+m1<-str_detect( train$description,"ascensor") 
+m2<-str_detect( train$description,"acensor") 
+m3<-str_detect( train$description,"asensor") 
+m4<-str_detect( train$description,"elevador") 
+m5<-str_detect( train$description,"ascensores") 
+m6<-str_detect( train$description,"acensores") 
+m7<-str_detect( train$description,"asensores") 
+m8<-str_detect( train$description,"elevadores") 
+train$ascensor<-ifelse(m1==TRUE|m2==TRUE| m3==TRUE|m4==TRUE|m5==TRUE|m6==TRUE|m7==TRUE|m8==TRUE, 1,0 )
+
+
+#Es iluminado
+n1<-str_detect( train$description,"iluminado") 
+n2<-str_detect( train$description,"luz")
+train$iluminado<-ifelse(n1==TRUE|n2==TRUE, 1,0 )
+
+#tiene parqueadero/garaje
+o1<-str_detect( train$description,"parqueadero") 
+o2<-str_detect( train$description,"garaje")
+train$parqueo<-ifelse(o1==TRUE|o2==TRUE, 1,0 )
+
+#tiene patio/jardín/terraza
+p1<-str_detect( train$description,"patio") 
+p2<-str_detect( train$description,"jardin")
+p3<-str_detect( train$description,"terraza")
+p4<-str_detect( train$description,"balcon")
+train$patio<-ifelse(p1==TRUE|p2==TRUE|p3==TRUE|p4==TRUE, 1,0 )
+
+### 3. Cambios a para base test
+
+#aplicar función de limpieza a base test
+test$descr_nueva <-limpieza(test$description)
+
+#añadir vector a la base train
+#test$NewColumn <- clean_description_test
+
+#### 4. Variables  espaciales
+
+#4.1 revisar variables disponibles en openmaps 
+available_tags("leisure") 
+available_tags("amenity")
+available_tags ("highway")
+
+#4.2 Parques
 # Extraemos la info de todos los parques 
 parques <- opq(bbox = getbb("Bogota Colombia")) %>%
   add_osm_feature(key = "leisure" , value = "park") 
