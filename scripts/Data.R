@@ -46,17 +46,19 @@ mediana_sup_total<- median(data$surface_total, na.rm = TRUE)
 p_load(stargazer)
 stargazer(train,type="text")
 
-#2.1 Calculamos valor del metro cuadrado 
-train <- train %>%
-  mutate(precio_por_mt2 = round(price / surface_total, 0))%>%
-  mutate(precio_por_mt2  =precio_por_mt2/1000000 )  ## precio x Mt2 en millones. 
-stargazer(train["precio_por_mt2"],type="text")
+#2.1 revisión de missings
+p_load( visdat)
+vis_dat(train)
+#Nota: hay missings en rooms, bathrooms, y en mayor medida en surface total y surface covered
 
-#2.2 Filtramos outlier de valor por metro cuadrado
-train <- train %>%
-  filter(between(precio_por_mt2, 0.10,  20))
+#Contabilizar total de observaciones sin missings
+sum(table(train$surface_total))#7854
+sum(table(train$surface_covered))#8565
+sum(table(train$rooms))#20384
+sum(table(train$bedrooms))#38644
+sum(table(train$bathrooms))#28573
 
-#2.3 Visualicemos la distribución de la variable del precio del inmueble
+#2.2 Visualicemos la distribución de la variable del precio del inmueble
 pr <- ggplot(train, aes(x = price)) +
   geom_histogram(fill = "darkblue", alpha = 0.4) +
   labs(x = "Valor de venta (log-scale)", y = "Cantidad") +
@@ -64,7 +66,7 @@ pr <- ggplot(train, aes(x = price)) +
   theme_bw()
 ggplotly(p)
 
-#2.4 Observamos la distribución de los inmuebles en el mapa de Bogotá
+#2.3 Observamos la distribución de los inmuebles en el mapa de Bogotá
 leaflet() %>%
   addTiles() %>%
   addCircles(lng = test$lon, 
@@ -73,24 +75,6 @@ leaflet() %>%
   addTiles() %>%
   addCircles(lng = train$lon, 
              lat = train$lat)
-
-
-#2.5 revisión de missings
-p_load( visdat)
-vis_dat(train)
-#hay missings en rooms, bathrooms, y en mayor medida en surface total y surface covered
-
-#2.6 reemplazar missings 
-pre_process_propiedades<-  function(data, ...) {
-  
-  data <- data %>%
-    mutate(rooms = replace_na(rooms, 3),
-           bedrooms = replace_na(bedrooms, 3),
-           bathrooms = replace_na(bathrooms, 2),
-           surface_covered = replace_na(surface_covered, mediana_sup_cubierta),
-           surface_total = replace_na(surface_total, mediana_sup_total),
-    )
-}
 
 ##3.Análisis de la información de la descripción
 
@@ -118,10 +102,13 @@ texto_tidy_train <- texto_tidy_train  %>%
 wordcloud(texto_tidy_train$word, min.freq = 100, 
           colors= c(rgb(72/255, 191/255, 169/255),rgb(249/255, 220/255, 92/255), rgb(229/255, 249/255, 147/255))) 
 
-##3.2 Cambios a para base train
+###############################    Cambios a base train    #############################################
 
+train<-read.csv("train.csv")
 
-#función para reemplazar palabras por numeros
+## 4 Utilizar información descripción para cubrir missings
+
+## 4.1función para reemplazar palabras por numeros
 reemplazar_numeros <- function(texto) {
   # Diccionario de números en texto y sus correspondientes dígitos
   numeros <- c(
@@ -142,7 +129,7 @@ reemplazar_numeros <- function(texto) {
 #aplicar función de limpieza a base train
 train$description_num<-reemplazar_numeros(train$description)
 
-#extraer metraje
+## 4.2 extraer metraje
 a1 <- "[:space:]+[:digit:]+metros" 
 a2 <- "[:space:]+[:digit:]+mts"
 a3 <- "[:space:]+[:digit:]+mts2"
@@ -167,9 +154,9 @@ train<-train %>% mutate(metraje = str_extract(string = train$description_num,
                                                                   b1,"|",b2,"|",b3,"|",b4,"|",b5,"|",b6,"|",
                                                                   c1,"|",c2,"|",c3,"|",c4,"|",c5,"|",c6)))
 train$metraje<- as.numeric(gsub("[^0-9]", "", train$metraje))
-#qué hacer con los datos que son muy pequeños?
 
-#habitaciones/alcobas/dormitorios
+
+## 4.3 habitaciones/alcobas/dormitorios
 d1 <-"[:digit:]+alcobas"
 d2 <-"[:digit:]+habitaciones"
 d3 <-"[:digit:]+dormitorios"
@@ -199,9 +186,9 @@ train<-train %>% mutate(alcobas = str_extract(string = train$description_num,
                                               pattern =  paste0(d1,"|",d2,"|",d3,"|",d4,"|",d5,"|",d6,"|",d7,"|",d8,"|",
                                                                 e1,"|",e2,"|",e3,"|",e4,"|",e5,"|",e6,"|",e7,"|",e8,"|",
                                                                 f1,"|",f2,"|",f3,"|",f4,"|",f5,"|",f6,"|",f7,"|",f8)))
-train$alcobas_num<- as.numeric(gsub("[^0-9]", "", train$alcobas))
+train$alcobas<- as.numeric(gsub("[^0-9]", "", train$alcobas))
 
-#baños
+## 4.4 baños
 g1 <-"[:digit:]+bano"
 g2 <-"[:digit:]+banos"
 g3 <-"[:digit:]+baos"
@@ -218,38 +205,31 @@ train<-train %>% mutate(bano = str_extract(string = train$description_num,
                                               pattern =  paste0(g1,"|",g2,"|",g3,"|",g4,"|",
                                                                 h1,"|",h2,"|",h3,"|",h4,"|",
                                                                 i1,"|",i2,"|",i3,"|",i4)))
-train$bano_num<- as.numeric(gsub("[^0-9]", "", train$bano))
+train$bano<- as.numeric(gsub("[^0-9]", "", train$bano))
 
-#altura/piso
-j1 <- "[:digit:]+[:space:]+piso"
-j2 <- "[:space:]+[:digit:]+[:space:]+piso"
-j3 <- "piso+[:space:]+[:digit:]"
-j4 <- "[:space:]+piso+[:space:]+[:digit:]"
+## 4.5 Reemplazar missings en variables surface_total, rooms y bathrooms, y ver en cuanto incrementa la muestra
+library(dplyr)
+train <- train %>%
+  mutate(surface_total = ifelse(is.na(surface_total), metraje, surface_total))
+sum(table(train$surface_total))#20376
 
-train<-train %>% mutate(piso = str_extract(string = train$description_num,
-                                           pattern =  paste0(j1,"|",j2,"|",j3,"|",j4)))
-train$piso_num<- as.numeric(gsub("[^0-9]", "", train$piso))
+train <- train %>%
+  mutate(rooms = ifelse(is.na(rooms), alcobas, rooms))
+sum(table(train$rooms))#33745
 
-#estrato
-k1 <- "estrato+[:space:]+[:digit:]" 
-k2 <- "[:space:]+estrato+[:digit:]"
-k3 <- "[:space:]+estrato+[:space:]+[:digit:]"
+train <- train %>%
+  mutate(bathrooms = ifelse(is.na(bathrooms), bano, bathrooms))
+sum(table(train$bathrooms))#32900
 
-train<-train %>% mutate(estrato = str_extract(string = train$description_num,
-                                           pattern =  paste0(k1,"|",k2,"|",k3)))
-train$estrato_num<- as.numeric(gsub("[^0-9]", "", train$estrato))
+## 5. Añadir variables adicionales a partir de la descripción
 
-#años de construido / remodelado
-# l1 <- "anos+[:space:]+[:digit:]" 
-# l2 <- "[:space:]+anos+[:digit:]"
-# l3 <- "[:space:]+anos+[:space:]+[:digit:]"
-# train<-train %>% mutate(antiguedad = str_extract(string = train$description_num,
-#                                               pattern =  paste0(l1,"|",l2,"|",l3)))
-# train$antiguedad_num<- as.numeric(gsub("[^0-9]", "", train$antiguedad))
+## 5.1 Está remodelado
 l1<-str_detect( train$description,"remodelado") 
 train$remodel<-ifelse(l1==TRUE, 1,0 )
+train %>%
+  count(remodel)
 
-#tiene ascensor
+## 5.2 tiene ascensor
 m1<-str_detect( train$description,"ascensor") 
 m2<-str_detect( train$description,"acensor") 
 m3<-str_detect( train$description,"asensor") 
@@ -259,41 +239,445 @@ m6<-str_detect( train$description,"acensores")
 m7<-str_detect( train$description,"asensores") 
 m8<-str_detect( train$description,"elevadores") 
 train$ascensor<-ifelse(m1==TRUE|m2==TRUE| m3==TRUE|m4==TRUE|m5==TRUE|m6==TRUE|m7==TRUE|m8==TRUE, 1,0 )
+train %>%
+  count(ascensor)
 
-
-#Es iluminado
+## 5.3 Es iluminado
 n1<-str_detect( train$description,"iluminado") 
 n2<-str_detect( train$description,"luz")
 train$iluminado<-ifelse(n1==TRUE|n2==TRUE, 1,0 )
+train %>%
+  count(iluminado)
 
-#tiene parqueadero/garaje
+## 5.4 Tiene parqueadero/garaje
 o1<-str_detect( train$description,"parqueadero") 
 o2<-str_detect( train$description,"garaje")
 train$parqueo<-ifelse(o1==TRUE|o2==TRUE, 1,0 )
+train %>%
+  count(parqueo)
 
-#tiene patio/jardín/terraza
+## 5.5 Tiene patio/jardín/terraza
 p1<-str_detect( train$description,"patio") 
 p2<-str_detect( train$description,"jardin")
 p3<-str_detect( train$description,"terraza")
 p4<-str_detect( train$description,"balcon")
 train$patio<-ifelse(p1==TRUE|p2==TRUE|p3==TRUE|p4==TRUE, 1,0 )
+train %>%
+  count(patio)
 
-### 3. Cambios a para base test
+## 5.6 Tiene depósito
+q1<-str_detect( train$description,"deposito")
+train$deposito<-ifelse(q1==TRUE, 1,0 )
+train %>%
+  count(deposito)
 
-#aplicar función de limpieza a base test
-test$descr_nueva <-limpieza(test$description)
+## 5.7 altura/piso
+j1 <- "[:digit:]+[:space:]+piso"
+j2 <- "[:space:]+[:digit:]+[:space:]+piso"
+j3 <- "piso+[:space:]+[:digit:]"
+j4 <- "[:space:]+piso+[:space:]+[:digit:]"
 
-#añadir vector a la base train
-#test$NewColumn <- clean_description_test
+train<-train %>% mutate(piso = str_extract(string = train$description_num,
+                                           pattern =  paste0(j1,"|",j2,"|",j3,"|",j4)))
+train$piso<- as.numeric(gsub("[^0-9]", "", train$piso))
 
-#### 4. Variables  espaciales
+#ver distribución de datos de piso dependiendo de si es casa o apartamento
+train %>%
+  count(property_type,piso)
 
-#4.1 revisar variables disponibles en openmaps 
+#reemplazar missings dependiendo de la media de pisos de cada tipo de propiedad
+train <- train %>%
+  mutate(piso = ifelse(is.na(piso) & property_type == "Apartamento", 4, piso))
+train <- train %>%
+  mutate(piso = ifelse(is.na(piso) & property_type == "Casa", 2, piso))
+
+#nota: para estimar las medias, esto se corrío antes de quitar todos los missing
+train %>%
+  group_by(property_type) %>%
+  summarize(
+    count = n(),
+    mean = mean(piso, na.rm = TRUE),
+    median = median(piso, na.rm = TRUE),
+    sd = sd(piso, na.rm = TRUE),
+    min = min(piso, na.rm = TRUE),
+    max = max(piso, na.rm = TRUE)
+  )
+
+
+## 5.8 estrato
+#nota: tiene muchos missing, por lo que puede ser mejor incluir esa variable con datos espaciales
+# k1 <- "estrato+[:space:]+[:digit:]" 
+# k2 <- "[:space:]+estrato+[:digit:]"
+# k3 <- "[:space:]+estrato+[:space:]+[:digit:]"
+# 
+# train<-train %>% mutate(estrato = str_extract(string = train$description_num,
+#                                            pattern =  paste0(k1,"|",k2,"|",k3)))
+# train$estrato<- as.numeric(gsub("[^0-9]", "", train$estrato))
+
+
+## 5.9 años de construido 
+#Nota: hay muchos missing, por lo que no se utiliza
+# l1 <- "anos+[:space:]+[:digit:]" 
+# l2 <- "[:space:]+anos+[:digit:]"
+# l3 <- "[:space:]+anos+[:space:]+[:digit:]"
+# train<-train %>% mutate(antiguedad = str_extract(string = train$description_num,
+#                                               pattern =  paste0(l1,"|",l2,"|",l3)))
+# train$antiguedad_num<- as.numeric(gsub("[^0-9]", "", train$antiguedad))
+
+
+## 6. Limpiar base de missings restantes 
+
+## 6.1 Reemplazar missings de surface_total, rooms, bedrooms, bathrooms
+
+#identificar nuevas medias
+#mediana_sup_cubierta <- median(train$surface_covered, na.rm = TRUE)
+mediana_sup_total<- median(train$surface_total, na.rm = TRUE)
+stargazer(train,type="text")
+
+#reemplazar medias en missings
+process_missings<-  function(data, ...) {
+  
+  data <- data %>%
+    mutate(rooms = replace_na(rooms, 3),
+           bedrooms = replace_na(bedrooms, 3),
+           bathrooms = replace_na(bathrooms, 2),
+           #surface_covered = replace_na(surface_covered, mediana_sup_cubierta),
+           surface_total = replace_na(surface_total, mediana_sup_total),
+    )
+}
+
+train <- process_missings(train)
+
+#Nota: hasta aqui la base mantiene sus 38644 obs "originales"
+
+## 7. Limpiar outliers restantes
+
+## 7.1 outliers de piso
+train <- train %>%
+  filter(property_type== "Apartamento" & piso >= 0 & piso <= 25|
+           property_type== "Casa" & piso >= 0 & piso <= 6)
+#Nota: aquí la base va en 38503 obs
+
+## 7.2 outliers de habitaciones
+#nota:aquí la base cae a 38425
+p_load( visdat)
+vis_dat(train)
+
+train %>%
+  count(rooms)
+train <- train %>%
+  filter(between(rooms, 0,  20))
+
+train %>%
+  count(bedrooms)
+
+## 7.3 outliers de baños
+#nota:aquí la base cae a 38401
+train  %>%
+  count(bathrooms)
+train <- train %>%
+  filter(between(bathrooms, 0,  23))
+
+vis_dat(train, warn_large_data = FALSE)
+
+## 7.4  outlier de valor por metro cuadrado
+#Calculamos valor del metro cuadrado 
+train <- train %>%
+  mutate(precio_por_mt2 = round(price / surface_total, 0))%>%
+  mutate(precio_por_mt2  =precio_por_mt2/1000000 )  ## precio x Mt2 en millones. 
+stargazer(train["precio_por_mt2"],type="text")
+
+#quitar outliers
+#nota: aquí la base cae a 35910, no hay missings
+train <- train %>%
+  filter(between(precio_por_mt2, 0.10,  20))
+
+train <- train %>%
+  select(-surface_covered, -metraje, -alcobas,-bano)
+vis_dat(train, warn_large_data = FALSE)
+
+######################## Cambios a para base test ########################################################
+test<-read.csv("test.csv")
+
+## 8 Utilizar información descripción para cubrir missings
+#Nota: la base inicia con 10286 obs
+
+## 8.1 función para reemplazar palabras por numeros
+reemplazar_numeros <- function(texto) {
+  # Diccionario de números en texto y sus correspondientes dígitos
+  numeros <- c(
+    " una " = " 1 ", " un "=" 1 "," primer "=" 1 ", " dos " = " 2 ", " segundo " = " 2 ", " tres " = " 3 ", " tercer " = " 3 ",
+    " cuatro " = " 4 "," 4to "="4"," cinco" = " 5 "," quinto " = " 5 "," seis " = " 6 ", " sexto " = " 6 ", 
+    " siete " = " 7 "," septimo " = " 7 ", " ocho " = " 8 "," octavo " = " 8 ", " nueve " = " 9 ", " noveno " = " 9 ",
+    " diez " = " 10 "," decimo " = " 10 "
+  )
+  
+  # Reemplazar números en texto por dígitos
+  for (word in names(numeros)) {
+    texto <- gsub(word, numeros[[word]], texto, ignore.case = TRUE)
+  }
+  
+  return(texto)
+}
+
+#aplicar función de limpieza a base train
+test$description_num<-reemplazar_numeros(test$description)
+
+## 8.2 extraer metraje
+a1 <- "[:space:]+[:digit:]+metros" 
+a2 <- "[:space:]+[:digit:]+mts"
+a3 <- "[:space:]+[:digit:]+mts2"
+a4 <- "[:space:]+[:digit:]+mt"
+a5 <- "[:space:]+[:digit:]+m2" 
+a6 <- "[:space:]+[:digit:]+mt2"
+b1 <- "[:space:]+[:digit:]+[:space:]+metros" 
+b2 <- "[:space:]+[:digit:]+[:space:]+mts"
+b3 <- "[:space:]+[:digit:]+[:space:]+mts2"
+b4 <- "[:space:]+[:digit:]+[:space:]+mt" 
+b5 <- "[:space:]+[:digit:]+[:space:]+m2"
+b6 <- "[:space:]+[:digit:]+[:space:]+mt2"
+c1 <- "[:space:]+[:digit:]+[:punct:]+[:digit:]+[:space:]+metros" 
+c2 <- "[:space:]+[:digit:]+[:punct:]+[:digit:]+[:space:]+mts"
+c3 <- "[:space:]+[:digit:]+[:punct:]+[:digit:]+[:space:]+mts2"
+c4 <- "[:space:]+[:digit:]+[:punct:]+[:digit:]+[:space:]+mt" 
+c5 <- "[:space:]+[:digit:]+[:punct:]+[:digit:]+[:space:]+m2"
+c6 <- "[:space:]+[:digit:]+[:punct:]+[:digit:]+[:space:]+mt2"
+
+test<-test %>% mutate(metraje = str_extract(string = test$description_num,
+                                              pattern =  paste0(a1,"|",a2,"|",a3,"|",a4,"|",a5,"|",a6,"|",
+                                                                b1,"|",b2,"|",b3,"|",b4,"|",b5,"|",b6,"|",
+                                                                c1,"|",c2,"|",c3,"|",c4,"|",c5,"|",c6)))
+test$metraje<- as.numeric(gsub("[^0-9]", "", test$metraje))
+
+
+## 8.3 habitaciones/alcobas/dormitorios
+d1 <-"[:digit:]+alcobas"
+d2 <-"[:digit:]+habitaciones"
+d3 <-"[:digit:]+dormitorios"
+d4 <-"[:digit:]+habitacion"
+d5 <-"[:digit:]+alcoba"
+d6 <-"[:digit:]+dormitorio"
+d7 <-"[:digit:]+habitacin"
+d8 <-"[:digit:]+cuartos"
+e1 <-"[:space:]+[:digit:]+alcobas"
+e2 <-"[:space:]+[:digit:]+habitaciones"
+e3 <-"[:space:]+[:digit:]+dormitorios"
+e4 <-"[:space:]+[:digit:]+habitacion"
+e5 <-"[:space:]+[:digit:]+alcoba"
+e6 <-"[:space:]+[:digit:]+dormitorio"
+e7 <-"[:space:]+[:digit:]+habitacin"
+e8 <-"[:space:]+[:digit:]+cuartos"
+f1 <-"[:space:]+[:digit:]+[:space:]+alcobas"
+f2 <-"[:space:]+[:digit:]+[:space:]+habitaciones"
+f3 <-"[:space:]+[:digit:]+[:space:]+dormitorios"
+f4 <-"[:space:]+[:digit:]+[:space:]+habitacion"
+f5 <-"[:space:]+[:digit:]+[:space:]+alcoba"
+f6 <-"[:space:]+[:digit:]+[:space:]+dormitorio"
+f7 <-"[:space:]+[:digit:]+[:space:]+habitacin"
+f8 <-"[:space:]+[:digit:]+[:space:]+cuartos"
+
+test<-test %>% mutate(alcobas = str_extract(string = test$description_num,
+                                              pattern =  paste0(d1,"|",d2,"|",d3,"|",d4,"|",d5,"|",d6,"|",d7,"|",d8,"|",
+                                                                e1,"|",e2,"|",e3,"|",e4,"|",e5,"|",e6,"|",e7,"|",e8,"|",
+                                                                f1,"|",f2,"|",f3,"|",f4,"|",f5,"|",f6,"|",f7,"|",f8)))
+test$alcobas<- as.numeric(gsub("[^0-9]", "", test$alcobas))
+
+## 8.4 baños
+g1 <-"[:digit:]+bano"
+g2 <-"[:digit:]+banos"
+g3 <-"[:digit:]+baos"
+g4 <-"[:digit:]+bao"
+h1 <-"[:space:]+[:digit:]+bano"
+h2 <-"[:space:]+[:digit:]+banos"
+h3 <-"[:space:]+[:digit:]+baos"
+h4 <-"[:space:]+[:digit:]+bao"
+i1 <-"[:space:]+[:digit:]+[:space:]+bano"
+i2 <-"[:space:]+[:digit:]+[:space:]+banos"
+i3 <-"[:space:]+[:digit:]+[:space:]+baos"
+i4 <-"[:space:]+[:digit:]+[:space:]+bao"
+test<-test %>% mutate(bano = str_extract(string = test$description_num,
+                                           pattern =  paste0(g1,"|",g2,"|",g3,"|",g4,"|",
+                                                             h1,"|",h2,"|",h3,"|",h4,"|",
+                                                             i1,"|",i2,"|",i3,"|",i4)))
+test$bano<- as.numeric(gsub("[^0-9]", "", test$bano))
+
+## 8.5 Reemplazar missings en variables surface_total, rooms y bathrooms, y ver en cuanto incrementa la muestra
+library(dplyr)
+test <- test %>%
+  mutate(surface_total = ifelse(is.na(surface_total), metraje, surface_total))
+sum(table(test$surface_total))#5418
+
+test <- test %>%
+  mutate(rooms = ifelse(is.na(rooms), alcobas, rooms))
+sum(table(test$rooms))#8887
+
+test <- test %>%
+  mutate(bathrooms = ifelse(is.na(bathrooms), bano, bathrooms))
+sum(table(test$bathrooms))#8897
+
+## 9. Añadir variables adicionales a partir de la descripción
+
+## 9.1 Está remodelado
+l1<-str_detect( test$description,"remodelado") 
+test$remodel<-ifelse(l1==TRUE, 1,0 )
+test %>%
+  count(remodel)
+
+## 9.2 tiene ascensor
+m1<-str_detect( test$description,"ascensor") 
+m2<-str_detect( test$description,"acensor") 
+m3<-str_detect( test$description,"asensor") 
+m4<-str_detect( test$description,"elevador") 
+m5<-str_detect( test$description,"ascensores") 
+m6<-str_detect( test$description,"acensores") 
+m7<-str_detect( test$description,"asensores") 
+m8<-str_detect( test$description,"elevadores") 
+test$ascensor<-ifelse(m1==TRUE|m2==TRUE| m3==TRUE|m4==TRUE|m5==TRUE|m6==TRUE|m7==TRUE|m8==TRUE, 1,0 )
+test %>%
+  count(ascensor)
+
+## 9.3 Es iluminado
+n1<-str_detect( test$description,"iluminado") 
+n2<-str_detect( test$description,"luz")
+test$iluminado<-ifelse(n1==TRUE|n2==TRUE, 1,0 )
+test %>%
+  count(iluminado)
+
+## 9.4 Tiene parqueadero/garaje
+o1<-str_detect( test$description,"parqueadero") 
+o2<-str_detect( test$description,"garaje")
+test$parqueo<-ifelse(o1==TRUE|o2==TRUE, 1,0 )
+test %>%
+  count(parqueo)
+
+## 9.5 Tiene patio/jardín/terraza
+p1<-str_detect( test$description,"patio") 
+p2<-str_detect( test$description,"jardin")
+p3<-str_detect( test$description,"terraza")
+p4<-str_detect( test$description,"balcon")
+test$patio<-ifelse(p1==TRUE|p2==TRUE|p3==TRUE|p4==TRUE, 1,0 )
+test %>%
+  count(patio)
+
+## 9.6 Tiene depósito
+q1<-str_detect( test$description,"deposito")
+test$deposito<-ifelse(q1==TRUE, 1,0 )
+test %>%
+  count(deposito)
+
+## 9.7 altura/piso
+j1 <- "[:digit:]+[:space:]+piso"
+j2 <- "[:space:]+[:digit:]+[:space:]+piso"
+j3 <- "piso+[:space:]+[:digit:]"
+j4 <- "[:space:]+piso+[:space:]+[:digit:]"
+
+test<-test %>% mutate(piso = str_extract(string = test$description_num,
+                                           pattern =  paste0(j1,"|",j2,"|",j3,"|",j4)))
+test$piso<- as.numeric(gsub("[^0-9]", "", test$piso))
+
+#ver distribución de datos de piso dependiendo de si es casa o apartamento
+test %>%
+  count(property_type,piso)
+
+#reemplazar missings dependiendo de la media de pisos de cada tipo de propiedad
+test <- test %>%
+  mutate(piso = ifelse(is.na(piso) & property_type == "Apartamento", 6, piso))
+test <- test %>%
+  mutate(piso = ifelse(is.na(piso) & property_type == "Casa", 3, piso))
+
+#nota: para estimar las medias, esto se corrío antes de quitar todos los missing
+test %>%
+  group_by(property_type) %>%
+  summarize(
+    count = n(),
+    mean = mean(piso, na.rm = TRUE),
+    median = median(piso, na.rm = TRUE),
+    sd = sd(piso, na.rm = TRUE),
+    min = min(piso, na.rm = TRUE),
+    max = max(piso, na.rm = TRUE)
+  )
+
+## 10. Limpiar base de missings restantes 
+
+## 10.1 Reemplazar missings de surface_total, rooms, bedrooms, bathrooms
+
+#identificar nuevas medias
+#mediana_sup_cubierta <- median(test$surface_covered, na.rm = TRUE)
+mediana_sup_total<- median(test$surface_total, na.rm = TRUE)
+stargazer(test,type="text")
+
+test %>%
+  group_by(property_type) %>%
+  summarize(
+    count = n(),
+    mean = mean(rooms, na.rm = TRUE),
+    median = median(rooms, na.rm = TRUE),
+    sd = sd(rooms, na.rm = TRUE),
+    min = min(rooms, na.rm = TRUE),
+    max = max(rooms, na.rm = TRUE)
+  )
+test %>%
+  count(property_type,rooms)
+
+#reemplazar medias en missings
+process_missings<-  function(data, ...) {
+  
+  data <- data %>%
+    mutate(rooms = replace_na(rooms, 3),
+           bedrooms = replace_na(bedrooms, 2),
+           bathrooms = replace_na(bathrooms, 3),
+           #surface_covered = replace_na(surface_covered, mediana_sup_cubierta),
+           surface_total = replace_na(surface_total, mediana_sup_total),
+    )
+}
+
+test <- process_missings(test)
+
+#Nota: hasta aqui la base mantiene sus 38644 obs "originales"
+
+## 11. Limpiar outliers restantes
+
+## 11.1 outliers de piso
+test <- test %>%
+  filter(property_type== "Apartamento" & piso >= 0 & piso <= 25|
+           property_type== "Casa" & piso >= 0 & piso <= 6)
+#Nota: aquí la base va en 10258 obs
+
+## 11.2 outliers de habitaciones
+#nota:aquí la base cae a 10235
+p_load( visdat)
+vis_dat(test)
+
+test %>%
+  count(rooms)
+test <- test %>%
+  filter(between(rooms, 0,  20))
+
+test %>%
+  count(bedrooms)
+
+## 11.3 outliers de baños
+#nota:aquí la base cae a 10223
+test  %>%
+  count(bathrooms)
+test <- test %>%
+  filter(between(bathrooms, 0,  23))
+
+vis_dat(test, warn_large_data = FALSE)
+
+test <- test %>%
+  select(-surface_covered, -metraje, -alcobas,-bano)
+
+
+
+############################### 12. Variables  espaciales
+
+## 12.1 revisar variables disponibles en openmaps 
 available_tags("leisure") 
 available_tags("amenity")
 available_tags ("highway")
 
-#4.2 Parques
+## 12.2 Parques
 # Extraemos la info de todos los parques 
 parques <- opq(bbox = getbb("Bogota Colombia")) %>%
   add_osm_feature(key = "leisure" , value = "park") 
