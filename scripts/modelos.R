@@ -203,7 +203,20 @@ MAE(y_pred = y_hat_outsample5, y_true = t_test$price)
 MAPE(y_pred = y_hat_outsample5, y_true = t_test$price)
 RMSE(y_pred = y_hat_outsample5, y_true = t_test$price)
 
+#Preparando envio a Kaggle
 
-predictSample_rf <- predictSample_rf %>% select(property_id, price)
+predictSample_rf <- t_test   %>% 
+  mutate(price = predict(modelo_Ramdon_Forest, newdata = t_test, type = "raw")    ## predicted precio de la vivienda 
+  )  %>% select(property_id, price)
+
+head(predictSample_rf)
+
+#Es consistente con el template
+template<-read.csv("C:/Users/sandr/Documents/GitHub/BIG DATA/Taller3/scripts/submission_template.csv")
+
+head(template)
+setwd("C:/Users/sandr/Documents/GitHub/BIG DATA/Taller3/")
+
+#predictSample_rf <- predictSample_rf %>% select(property_id, price)
 write.csv(predictSample_rf,"stores/Prediction_Ramdon_Forest.csv", row.names = FALSE)
 
